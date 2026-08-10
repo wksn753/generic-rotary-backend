@@ -15,6 +15,7 @@ import (
 	"github.com/wksn753/kitende-rotary/internal/infrastructure"
 	"github.com/wksn753/kitende-rotary/internal/models"
 	"github.com/wksn753/kitende-rotary/internal/pkg"
+	"github.com/wksn753/kitende-rotary/internal/mail"
 )
 
 func main() {
@@ -93,6 +94,7 @@ func registerRoutes(router *gin.RouterGroup, visitorHandler *handlers.VisitorHan
 	router.GET("/clubs", visitorHandler.GetRotaryClubs)
 	router.GET("/attendance", requireAdminAPIKey(), visitorHandler.GetAttendance)
 	router.GET("/attendance/summary", requireAdminAPIKey(), visitorHandler.GetAttendanceSummary)
+	mail.RegisterRoutes(router)
 }
 
 // requireAdminAPIKey protects admin-only backend reads when ADMIN_API_KEY is set.
