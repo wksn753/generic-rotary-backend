@@ -89,6 +89,7 @@ func (p EmailPayload) Validate() error {
 // Graph API wire types
 // ---------------------------------------------------------------------------
 
+
 type graphAttachment struct {
 	ODataType    string `json:"@odata.type"`
 	Name         string `json:"name"`
