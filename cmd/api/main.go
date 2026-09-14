@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/subtle"
 	"fmt"
 	"log"
@@ -13,16 +14,15 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/wksn753/kitende-rotary/internal/handlers"
 	"github.com/wksn753/kitende-rotary/internal/infrastructure"
-	"github.com/wksn753/kitende-rotary/internal/models"
-	"github.com/wksn753/kitende-rotary/internal/pkg"
 	"github.com/wksn753/kitende-rotary/internal/mail"
+	"github.com/wksn753/kitende-rotary/internal/models"
+	"github.com/wksn753/kitende-rotary/internal/operations"
+	"github.com/wksn753/kitende-rotary/internal/pkg"
 )
 
 func main() {
-
-	err := godotenv.Load()
-	if err != nil {
-		log.Default().Println("Error loading .env file")
+	if err := godotenv.Load(); err != nil {
+		log.Println(".env file not loaded; using process environment")
 	}
 
 	dsn := strings.TrimSpace(os.Getenv("dsn"))
@@ -33,73 +33,92 @@ func main() {
 		log.Fatal("database connection not set: configure dsn or DATABASE_URL")
 	}
 
-	// --- Database ---
 	gormDB, err := pkg.InitializeDatabase(dsn)
-
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
 
-	// AutoMigrate creates/updates tables to match your struct definitions.
-	// RegisterRecord is used as an attendance/check-in table; new columns are
-	// added safely when the app starts.
-	if err := gormDB.AutoMigrate(&models.RegisterRecord{}, &models.RotaryClub{}); err != nil {
+	if err := gormDB.AutoMigrate(
+		&models.RegisterRecord{}, &models.RotaryClub{}, &models.ClubMember{}, &models.Donation{},
+		&models.ClubGoal{}, &models.RotaryProject{}, &models.ProjectTransaction{}, &models.ProjectInvoice{},
+		&models.EmailCampaign{}, &models.EmailJob{},
+	); err != nil {
 		log.Fatalf("auto migration failed: %v", err)
 	}
 	log.Println("database migrated successfully")
 
-	// --- Repositories / Handlers ---
-	// NOTE: adjust this constructor name to match whatever your
-	// repository package actually exposes (e.g. NewVisitorRepository).
+	operationsService := operations.NewService(gormDB)
+	if err := operationsService.BackfillMembersFromAttendance(); err != nil {
+		log.Printf("operations: member roster backfill failed: %v", err)
+	}
 	visitorRepo := infrastructure.NewVisitorInfrastructure(gormDB)
-	visitorHandler := handlers.NewVisitorHandler(visitorRepo)
+	visitorHandler := handlers.NewVisitorHandler(visitorRepo, operationsService)
+	operationsHandler := handlers.NewOperationsHandler(operationsService)
 
-	// --- Router ---
 	serverHandler := gin.New()
-	serverHandler.Use(gin.Logger())
-	serverHandler.Use(gin.Recovery())
-
+	serverHandler.Use(gin.Logger(), gin.Recovery())
 	router := serverHandler.Group("/api")
+	router.GET("/ping", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"message": "pong"}) })
+	registerRoutes(router, visitorHandler, operationsHandler)
 
-	router.GET("/ping", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"message": "pong",
-		})
-	})
-
-	registerRoutes(router, visitorHandler)
+	workerCtx, cancelWorker := context.WithCancel(context.Background())
+	defer cancelWorker()
+	operationsService.StartWorker(workerCtx)
 
 	port := strings.TrimSpace(os.Getenv("PORT"))
 	if port == "" {
 		port = "8080"
 	}
-	
-	s := &http.Server{
-		Addr:           ":" + port,
-		Handler:        serverHandler,
-		ReadTimeout:    10 * time.Second,
-		WriteTimeout:   10 * time.Second,
-		MaxHeaderBytes: 1 << 20,
-	}
+	s := &http.Server{Addr: ":" + port, Handler: serverHandler, ReadTimeout: 15 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20}
 	fmt.Printf("Starting server on port %s...\n", port)
 	log.Fatal(s.ListenAndServe())
-	log.Fatal(s.ListenAndServe())
-
 }
 
-func registerRoutes(router *gin.RouterGroup, visitorHandler *handlers.VisitorHandler) {
+func registerRoutes(router *gin.RouterGroup, visitorHandler *handlers.VisitorHandler, operationsHandler *handlers.OperationsHandler) {
 	router.POST("/register", visitorHandler.RegisterVisitor)
 	router.GET("/visitors/lookup", visitorHandler.LookupVisitor)
 	router.POST("/visitors/lookup", visitorHandler.LookupVisitor)
 	router.GET("/clubs", visitorHandler.GetRotaryClubs)
+	// Backward-compatible attendance paths used by the existing Next.js proxy.
 	router.GET("/attendance", requireAdminAPIKey(), visitorHandler.GetAttendance)
 	router.GET("/attendance/summary", requireAdminAPIKey(), visitorHandler.GetAttendanceSummary)
-	mail.RegisterRoutes(router)
+
+	admin := router.Group("/admin")
+	admin.Use(requireAdminAPIKey())
+	admin.GET("/attendance", visitorHandler.GetAttendance)
+	admin.GET("/attendance/summary", visitorHandler.GetAttendanceSummary)
+	admin.GET("/dashboard", operationsHandler.Dashboard)
+	admin.GET("/members", operationsHandler.ListMembers)
+	admin.POST("/members", operationsHandler.CreateMember)
+	admin.PATCH("/members/:id", operationsHandler.UpdateMember)
+	admin.GET("/donations", operationsHandler.ListDonations)
+	admin.POST("/donations", operationsHandler.CreateDonation)
+	admin.DELETE("/donations/:id", operationsHandler.DeleteDonation)
+	admin.GET("/goals", operationsHandler.ListGoals)
+	admin.POST("/goals", operationsHandler.CreateGoal)
+	admin.PATCH("/goals/:id", operationsHandler.UpdateGoal)
+	admin.DELETE("/goals/:id", operationsHandler.DeleteGoal)
+	admin.GET("/projects", operationsHandler.ListProjects)
+	admin.POST("/projects", operationsHandler.CreateProject)
+	admin.GET("/projects/:id", operationsHandler.GetProject)
+	admin.PATCH("/projects/:id", operationsHandler.UpdateProject)
+	admin.DELETE("/projects/:id", operationsHandler.DeleteProject)
+	admin.POST("/projects/:id/transactions", operationsHandler.CreateProjectTransaction)
+	admin.POST("/projects/:id/invoices", operationsHandler.CreateProjectInvoice)
+	admin.GET("/campaigns", operationsHandler.ListCampaigns)
+	admin.POST("/campaigns", operationsHandler.CreateCampaign)
+
+	// Cron/worker entrypoint. The mail work itself is entirely Go-backed; this
+	// route lets serverless deployments wake the Go worker on a schedule.
+	router.GET("/jobs/run", requireJobKey(), operationsHandler.RunJobs)
+	router.POST("/jobs/run", requireJobKey(), operationsHandler.RunJobs)
+
+	// Legacy manual mail endpoint retained for compatibility but no longer public.
+	mailGroup := router.Group("")
+	mailGroup.Use(requireAdminAPIKey())
+	mail.RegisterRoutes(mailGroup)
 }
 
-// requireAdminAPIKey protects admin-only backend reads when ADMIN_API_KEY is set.
-// It is optional so existing deployments keep working during rollout, but production
-// should set ADMIN_API_KEY and let the Next.js admin proxy pass X-Admin-API-Key.
 func requireAdminAPIKey() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		expected := strings.TrimSpace(os.Getenv("ADMIN_API_KEY"))
@@ -107,22 +126,40 @@ func requireAdminAPIKey() gin.HandlerFunc {
 			c.Next()
 			return
 		}
-
-		supplied := strings.TrimSpace(c.GetHeader("X-Admin-API-Key"))
-		if supplied == "" {
-			authorization := strings.TrimSpace(c.GetHeader("Authorization"))
-			supplied = strings.TrimSpace(strings.TrimPrefix(authorization, "Bearer "))
-		}
-
+		supplied := suppliedToken(c)
 		if supplied == "" || subtle.ConstantTimeCompare([]byte(supplied), []byte(expected)) != 1 {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"success": false,
-				"code":    "UNAUTHORIZED",
-				"message": "Admin access required",
-			})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "code": "UNAUTHORIZED", "message": "Admin access required"})
 			return
 		}
-
 		c.Next()
 	}
+}
+
+func requireJobKey() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		supplied := suppliedToken(c)
+		keys := []string{strings.TrimSpace(os.Getenv("CRON_SECRET")), strings.TrimSpace(os.Getenv("ADMIN_API_KEY"))}
+		for _, key := range keys {
+			if key != "" && supplied != "" && subtle.ConstantTimeCompare([]byte(supplied), []byte(key)) == 1 {
+				c.Next()
+				return
+			}
+		}
+		if keys[0] == "" && keys[1] == "" {
+			c.Next()
+			return
+		}
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "code": "UNAUTHORIZED", "message": "Job runner authorization required"})
+	}
+}
+
+func suppliedToken(c *gin.Context) string {
+	if value := strings.TrimSpace(c.GetHeader("X-Admin-API-Key")); value != "" {
+		return value
+	}
+	authorization := strings.TrimSpace(c.GetHeader("Authorization"))
+	if len(authorization) >= 7 && strings.EqualFold(authorization[:7], "Bearer ") {
+		return strings.TrimSpace(authorization[7:])
+	}
+	return authorization
 }

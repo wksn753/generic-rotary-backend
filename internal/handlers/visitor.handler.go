@@ -29,8 +29,13 @@ const (
 
 var nonDigitRegex = regexp.MustCompile(`\D+`)
 
+type AttendanceAutomation interface {
+	AfterAttendance(record models.RegisterRecord)
+}
+
 type VisitorHandler struct {
 	infrastructure repository.VisitorRepository
+	automation     AttendanceAutomation
 }
 
 type lookupRequest struct {
@@ -39,8 +44,12 @@ type lookupRequest struct {
 	Query string `json:"query"`
 }
 
-func NewVisitorHandler(infrastructure repository.VisitorRepository) *VisitorHandler {
-	return &VisitorHandler{infrastructure: infrastructure}
+func NewVisitorHandler(infrastructure repository.VisitorRepository, automation ...AttendanceAutomation) *VisitorHandler {
+	handler := &VisitorHandler{infrastructure: infrastructure}
+	if len(automation) > 0 {
+		handler.automation = automation[0]
+	}
+	return handler
 }
 
 func (v *VisitorHandler) RegisterVisitor(c *gin.Context) {
@@ -136,8 +145,12 @@ func (v *VisitorHandler) RegisterVisitor(c *gin.Context) {
 	}
 
 	// Registration is already committed at this point — nothing past here
-	// should be able to turn this into a failure response.
-	if req.Email != "" {
+	// should be able to turn this into a failure response. The operations
+	// service queues all durable mail/member jobs. Older deployments without
+	// that service keep the direct confirmation fallback.
+	if v.automation != nil {
+		v.automation.AfterAttendance(req)
+	} else if req.Email != "" {
 		go sendConfirmationAsync(req.ID, req.Email, req.FullName)
 	}
 

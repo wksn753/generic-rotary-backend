@@ -84,9 +84,10 @@ Run the migrations in this order:
 ```text
 migrations/20260708_attendance_checkin.sql
 migrations/20260723_buddy_custom_clubs.sql
+migrations/20260914_club_operations.sql
 ```
 
-The application also runs GORM AutoMigrate for `register_records` and `rotary_clubs` at startup.
+The application also runs GORM AutoMigrate for attendance plus the club-operations tables at startup. Historical home-club attendance is used to backfill the member roster idempotently.
 
 ## Environment
 
@@ -118,3 +119,26 @@ The API listens on port `8080`.
 ```bash
 go test ./...
 ```
+
+
+## Club operations upgrade
+
+The admin API now supports a persistent member roster, club-wide attendance analytics, buddy-group performance, meeting donations, measurable goals, Rotary projects, project income/expenses, invoice records, and queued/scheduled email campaigns.
+
+Additional protected endpoints include:
+
+- `GET /api/admin/dashboard`
+- `GET|POST /api/admin/members` and `PATCH /api/admin/members/:id`
+- `GET|POST /api/admin/donations`
+- `GET|POST|PATCH /api/admin/goals`
+- `GET|POST|PATCH /api/admin/projects` plus project `transactions` and `invoices`
+- `GET|POST /api/admin/campaigns`
+- `GET|POST /api/jobs/run` for the Go mail-job runner
+
+### Mail jobs and Savara Mail
+
+All automated and bulk mail is stored as durable PostgreSQL jobs and sent by Go. The long-running server checks the queue on an interval; the Vercel deployment also exposes `/api/jobs/run` for Vercel Cron. Each individual message deliberately authenticates against Savara Mail first and only then calls the send endpoint with the returned bearer token. Jobs are atomically claimed, stale claims are recovered, and failed sends retry up to three times.
+
+Attendance creates an immediate registration-confirmation job and a next-day 09:00 Africa/Kampala thank-you job when the attendee has an email address. Visitors receive visitor-specific next-day copy and admins listed in `ADMIN_NOTIFICATION_EMAILS` receive a visitor alert.
+
+Configure production from `.env.example`, especially `HOME_CLUB_NAMES`, `ADMIN_NOTIFICATION_EMAILS`, Savara Mail credentials, `ADMIN_API_KEY`, and `CRON_SECRET`.
