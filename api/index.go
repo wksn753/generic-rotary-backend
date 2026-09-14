@@ -15,7 +15,6 @@ import (
 	"github.com/wksn753/kitende-rotary/internal/handlers"
 	"github.com/wksn753/kitende-rotary/internal/infrastructure"
 	"github.com/wksn753/kitende-rotary/internal/mail"
-	"github.com/wksn753/kitende-rotary/internal/models"
 	"github.com/wksn753/kitende-rotary/internal/operations"
 	"github.com/wksn753/kitende-rotary/internal/pkg"
 )
@@ -42,19 +41,10 @@ func setup() {
 		initErr = fmt.Errorf("failed to connect to database: %w", err)
 		return
 	}
-	if err := db.AutoMigrate(
-		&models.RegisterRecord{}, &models.RotaryClub{}, &models.ClubMember{}, &models.Donation{},
-		&models.ClubGoal{}, &models.RotaryProject{}, &models.ProjectTransaction{}, &models.ProjectInvoice{},
-		&models.EmailCampaign{}, &models.EmailJob{},
-	); err != nil {
-		initErr = fmt.Errorf("auto migration failed: %w", err)
-		return
-	}
-
+	// Keep Vercel cold starts lightweight. Schema migrations and historical
+	// roster backfills must be run as explicit maintenance/deployment work, not
+	// while a serverless request is waiting for the function to initialize.
 	operationsService = operations.NewService(db)
-	if err := operationsService.BackfillMembersFromAttendance(); err != nil {
-		log.Printf("operations: member roster backfill failed: %v", err)
-	}
 	visitorRepo := infrastructure.NewVisitorInfrastructure(db)
 	visitorHandler := handlers.NewVisitorHandler(visitorRepo, operationsService)
 	operationsHandler := handlers.NewOperationsHandler(operationsService)
@@ -63,7 +53,9 @@ func setup() {
 	r := gin.New()
 	r.Use(gin.Recovery())
 	api := r.Group("/api")
-	api.GET("/ping", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"message": "pong"}) })
+	api.GET("/ping", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"message": "pong", "startup": "fast", "commit": strings.TrimSpace(os.Getenv("VERCEL_GIT_COMMIT_SHA"))})
+	})
 	registerRoutes(api, visitorHandler, operationsHandler)
 	router = r
 }

@@ -146,3 +146,18 @@ Configure production from `.env.example`, especially `HOME_CLUB_NAMES`, `ADMIN_N
 ## Frontend shows "club-operations API not found" or "backend initialization failed"
 
 The expanded admin UI requires this backend version to be deployed. Verify `/api/ping` first, then verify an authenticated request to `/api/admin/dashboard`. Run `migrations/20260914_club_operations.sql` when your production database role does not have DDL permission for GORM AutoMigrate. The backend now returns JSON for initialization failures so the Next.js proxy can report a useful deployment error instead of an unreadable response.
+
+
+## Vercel startup / migration rule
+
+Do **not** run GORM `AutoMigrate` or `BackfillMembersFromAttendance` during API startup on Vercel. The club-operations schema performs many PostgreSQL catalog queries and can exceed Vercel's server startup window before the Go process begins listening.
+
+Before deploying a schema change, apply the checked-in SQL migration explicitly (for this release: `migrations/20260914_club_operations.sql`). The API startup path only creates the DB handle, wires handlers, and starts listening. Historical roster backfill is a maintenance operation and should likewise be run separately rather than on each cold start.
+
+After deploying, verify:
+
+```text
+GET /api/ping
+```
+
+A healthy response includes `"message":"pong"`, `"startup":"fast"`, and, on Vercel, the deployed Git commit SHA.

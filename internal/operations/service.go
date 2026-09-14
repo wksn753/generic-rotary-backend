@@ -30,8 +30,8 @@ func NewService(db *gorm.DB) *Service {
 func (s *Service) DB() *gorm.DB { return s.db }
 
 // BackfillMembersFromAttendance seeds the roster from historical home-club
-// attendance. It is safe to run on startup because upsertMemberFromAttendance
-// de-duplicates by email/phone and only refreshes known profile fields.
+// attendance. It is safe to run repeatedly, but it should be invoked as an
+// explicit maintenance task rather than during Vercel request-serving startup.
 func (s *Service) BackfillMembersFromAttendance() error {
 	if s == nil || s.db == nil {
 		return nil

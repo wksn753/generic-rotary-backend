@@ -15,7 +15,6 @@ import (
 	"github.com/wksn753/kitende-rotary/internal/handlers"
 	"github.com/wksn753/kitende-rotary/internal/infrastructure"
 	"github.com/wksn753/kitende-rotary/internal/mail"
-	"github.com/wksn753/kitende-rotary/internal/models"
 	"github.com/wksn753/kitende-rotary/internal/operations"
 	"github.com/wksn753/kitende-rotary/internal/pkg"
 )
@@ -38,19 +37,13 @@ func main() {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
 
-	if err := gormDB.AutoMigrate(
-		&models.RegisterRecord{}, &models.RotaryClub{}, &models.ClubMember{}, &models.Donation{},
-		&models.ClubGoal{}, &models.RotaryProject{}, &models.ProjectTransaction{}, &models.ProjectInvoice{},
-		&models.EmailCampaign{}, &models.EmailJob{},
-	); err != nil {
-		log.Fatalf("auto migration failed: %v", err)
-	}
-	log.Println("database migrated successfully")
+	// IMPORTANT: do not run AutoMigrate or historical roster backfills in the
+	// request-serving startup path. Vercel requires the Go server to begin
+	// listening quickly; GORM schema introspection across all operations tables
+	// can exceed the platform startup window. Run SQL migrations separately.
+	log.Println("database configured; startup migrations/backfill skipped")
 
 	operationsService := operations.NewService(gormDB)
-	if err := operationsService.BackfillMembersFromAttendance(); err != nil {
-		log.Printf("operations: member roster backfill failed: %v", err)
-	}
 	visitorRepo := infrastructure.NewVisitorInfrastructure(gormDB)
 	visitorHandler := handlers.NewVisitorHandler(visitorRepo, operationsService)
 	operationsHandler := handlers.NewOperationsHandler(operationsService)
@@ -58,7 +51,9 @@ func main() {
 	serverHandler := gin.New()
 	serverHandler.Use(gin.Logger(), gin.Recovery())
 	router := serverHandler.Group("/api")
-	router.GET("/ping", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"message": "pong"}) })
+	router.GET("/ping", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"message": "pong", "startup": "fast", "commit": strings.TrimSpace(os.Getenv("VERCEL_GIT_COMMIT_SHA"))})
+	})
 	registerRoutes(router, visitorHandler, operationsHandler)
 
 	workerCtx, cancelWorker := context.WithCancel(context.Background())
