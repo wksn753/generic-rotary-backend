@@ -165,3 +165,9 @@ A healthy response includes `"message":"pong"`, `"startup":"fast"`, and, on Verc
 ## Vercel routing note
 
 Do not rewrite `/api/(.*)` to `/api`. Vercel's Go backend support forwards the original request path to the Go server; collapsing nested API paths to `/api` causes Gin routes such as `/api/admin/dashboard` and `/api/attendance` to return 404.
+
+## Communications template upgrade
+
+Run `migrations/20260914_email_templates.sql` after the club-operations migration. It adds single-recipient campaign fields plus the reusable `email_templates` table. The Communications UI sends structured template data and generates the email HTML; admins do not enter HTML themselves. Saved templates support club/organisation logos, partner/sponsor logos, a hero image, brand colour, heading, body, CTA button, footer and inbox preview text.
+
+Campaign bodies can contain `{{name}}`, `{{first_name}}` and `{{email}}`; the Go queue personalizes those tokens per recipient before Savara Mail delivery.

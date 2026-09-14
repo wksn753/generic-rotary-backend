@@ -385,6 +385,99 @@ func (h *OperationsHandler) CreateCampaign(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"success": true, "campaign": row})
 }
 
+func (h *OperationsHandler) ListEmailTemplates(c *gin.Context) {
+	var rows []models.EmailTemplate
+	if err := h.db.Order("updated_at DESC, id DESC").Find(&rows).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to load email templates"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "templates": rows, "count": len(rows)})
+}
+
+func (h *OperationsHandler) CreateEmailTemplate(c *gin.Context) {
+	var row models.EmailTemplate
+	if err := c.ShouldBindJSON(&row); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid email template payload"})
+		return
+	}
+	row.Name = strings.TrimSpace(row.Name)
+	row.Subject = strings.TrimSpace(row.Subject)
+	row.AccentColor = strings.TrimSpace(row.AccentColor)
+	if row.Name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Template name is required"})
+		return
+	}
+	if row.AccentColor == "" {
+		row.AccentColor = "#17458f"
+	}
+	if row.CreatedBy == "" {
+		row.CreatedBy = "Admin"
+	}
+	if err := h.db.Create(&row).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to create email template"})
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"success": true, "template": row})
+}
+
+func (h *OperationsHandler) UpdateEmailTemplate(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	var row models.EmailTemplate
+	if err := h.db.First(&row, id).Error; err != nil {
+		notFound(c, "Email template")
+		return
+	}
+	var input models.EmailTemplate
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid email template payload"})
+		return
+	}
+	input.Name = strings.TrimSpace(input.Name)
+	if input.Name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Template name is required"})
+		return
+	}
+	row.Name = input.Name
+	row.Description = input.Description
+	row.Subject = strings.TrimSpace(input.Subject)
+	row.Preheader = input.Preheader
+	row.AccentColor = strings.TrimSpace(input.AccentColor)
+	if row.AccentColor == "" {
+		row.AccentColor = "#17458f"
+	}
+	row.LogoURL = input.LogoURL
+	row.PartnerLogoURL = input.PartnerLogoURL
+	row.HeroImageURL = input.HeroImageURL
+	row.Heading = input.Heading
+	row.BodyText = input.BodyText
+	row.ButtonLabel = input.ButtonLabel
+	row.ButtonURL = input.ButtonURL
+	row.FooterText = input.FooterText
+	if input.CreatedBy != "" {
+		row.CreatedBy = input.CreatedBy
+	}
+	if err := h.db.Save(&row).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to update email template"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "template": row})
+}
+
+func (h *OperationsHandler) DeleteEmailTemplate(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	if err := h.db.Delete(&models.EmailTemplate{}, id).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to delete email template"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
 func (h *OperationsHandler) RunJobs(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 50*time.Second)
 	defer cancel()

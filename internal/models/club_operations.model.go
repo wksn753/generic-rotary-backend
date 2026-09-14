@@ -102,7 +102,10 @@ type ProjectInvoice struct {
 type EmailCampaign struct {
 	gorm.Model
 	Name           string     `gorm:"size:255;not null" json:"name"`
-	Audience       string     `gorm:"size:50;not null;index" json:"audience"` // members | all_attendees | visitors | attendance_date
+	Audience       string     `gorm:"size:50;not null;index" json:"audience"` // single | members | all_attendees | visitors | attendance_date
+	RecipientName  string     `gorm:"size:255" json:"recipientName"`
+	RecipientEmail string     `gorm:"size:255;index" json:"recipientEmail"`
+	TemplateID     *uint      `gorm:"index" json:"templateId"`
 	Subject        string     `gorm:"size:255;not null" json:"subject"`
 	Body           string     `gorm:"type:text;not null" json:"body"`
 	AttendanceDate string     `gorm:"size:20;index" json:"attendanceDate"`
@@ -112,6 +115,27 @@ type EmailCampaign struct {
 	SentCount      int        `json:"sentCount"`
 	FailedCount    int        `json:"failedCount"`
 	CompletedAt    *time.Time `json:"completedAt"`
+}
+
+// EmailTemplate stores a reusable, non-technical email design. The frontend
+// exposes these as logo/image/text/button fields and renders the final HTML
+// before the campaign is queued, so club admins never need to write HTML.
+type EmailTemplate struct {
+	gorm.Model
+	Name           string `gorm:"size:255;not null;index" json:"name"`
+	Description    string `gorm:"type:text" json:"description"`
+	Subject        string `gorm:"size:255" json:"subject"`
+	Preheader      string `gorm:"size:255" json:"preheader"`
+	AccentColor    string `gorm:"size:20;default:#17458f" json:"accentColor"`
+	LogoURL        string `gorm:"type:text" json:"logoUrl"`
+	PartnerLogoURL string `gorm:"type:text" json:"partnerLogoUrl"`
+	HeroImageURL   string `gorm:"type:text" json:"heroImageUrl"`
+	Heading        string `gorm:"size:255" json:"heading"`
+	BodyText       string `gorm:"type:text" json:"bodyText"`
+	ButtonLabel    string `gorm:"size:120" json:"buttonLabel"`
+	ButtonURL      string `gorm:"type:text" json:"buttonUrl"`
+	FooterText     string `gorm:"type:text" json:"footerText"`
+	CreatedBy      string `gorm:"size:120" json:"createdBy"`
 }
 
 // EmailJob is the durable unit of mail work. DedupeKey makes recurring jobs

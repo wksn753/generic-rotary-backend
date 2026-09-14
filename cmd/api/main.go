@@ -102,6 +102,10 @@ func registerRoutes(router *gin.RouterGroup, visitorHandler *handlers.VisitorHan
 	admin.POST("/projects/:id/invoices", operationsHandler.CreateProjectInvoice)
 	admin.GET("/campaigns", operationsHandler.ListCampaigns)
 	admin.POST("/campaigns", operationsHandler.CreateCampaign)
+	admin.GET("/email-templates", operationsHandler.ListEmailTemplates)
+	admin.POST("/email-templates", operationsHandler.CreateEmailTemplate)
+	admin.PATCH("/email-templates/:id", operationsHandler.UpdateEmailTemplate)
+	admin.DELETE("/email-templates/:id", operationsHandler.DeleteEmailTemplate)
 
 	// Cron/worker entrypoint. The mail work itself is entirely Go-backed; this
 	// route lets serverless deployments wake the Go worker on a schedule.

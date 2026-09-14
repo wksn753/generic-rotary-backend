@@ -303,12 +303,28 @@ func splitEmails(value string) []string {
 
 type campaignRecipient struct{ Name, Email string }
 
+func personalizeCampaignText(value string, recipient campaignRecipient) string {
+	name := strings.TrimSpace(recipient.Name)
+	firstName := name
+	if fields := strings.Fields(name); len(fields) > 0 {
+		firstName = fields[0]
+	}
+	replacer := strings.NewReplacer(
+		"{{name}}", name,
+		"{{first_name}}", firstName,
+		"{{email}}", recipient.Email,
+	)
+	return replacer.Replace(value)
+}
+
 func (s *Service) CreateCampaign(campaign *models.EmailCampaign) error {
 	if campaign == nil {
 		return fmt.Errorf("campaign is required")
 	}
 	campaign.Name = strings.TrimSpace(campaign.Name)
 	campaign.Audience = strings.TrimSpace(campaign.Audience)
+	campaign.RecipientName = strings.TrimSpace(campaign.RecipientName)
+	campaign.RecipientEmail = strings.ToLower(strings.TrimSpace(campaign.RecipientEmail))
 	campaign.Subject = strings.TrimSpace(campaign.Subject)
 	if campaign.Name == "" {
 		campaign.Name = campaign.Subject
@@ -325,15 +341,24 @@ func (s *Service) CreateCampaign(campaign *models.EmailCampaign) error {
 		if err := tx.Create(campaign).Error; err != nil {
 			return err
 		}
-		recipients, err := recipientsForCampaign(tx, campaign.Audience, campaign.AttendanceDate, s)
-		if err != nil {
-			return err
+		var recipients []campaignRecipient
+		var err error
+		if campaign.Audience == "single" {
+			if campaign.RecipientEmail == "" {
+				return fmt.Errorf("recipientEmail is required for a single email")
+			}
+			recipients = []campaignRecipient{{Name: campaign.RecipientName, Email: campaign.RecipientEmail}}
+		} else {
+			recipients, err = recipientsForCampaign(tx, campaign.Audience, campaign.AttendanceDate, s)
+			if err != nil {
+				return err
+			}
 		}
 		for index, recipient := range recipients {
 			job := models.EmailJob{
 				CampaignID: &campaign.ID, JobType: "campaign", DedupeKey: fmt.Sprintf("campaign:%d:%s:%d", campaign.ID, recipient.Email, index),
 				RecipientName: recipient.Name, RecipientEmail: recipient.Email,
-				Subject: campaign.Subject, Body: campaign.Body, ScheduledAt: campaign.ScheduledAt, Status: "pending",
+				Subject: personalizeCampaignText(campaign.Subject, recipient), Body: personalizeCampaignText(campaign.Body, recipient), ScheduledAt: campaign.ScheduledAt, Status: "pending",
 			}
 			if err := tx.Create(&job).Error; err != nil {
 				return err
