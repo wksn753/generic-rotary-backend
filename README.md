@@ -142,3 +142,7 @@ All automated and bulk mail is stored as durable PostgreSQL jobs and sent by Go.
 Attendance creates an immediate registration-confirmation job and a next-day 09:00 Africa/Kampala thank-you job when the attendee has an email address. Visitors receive visitor-specific next-day copy and admins listed in `ADMIN_NOTIFICATION_EMAILS` receive a visitor alert.
 
 Configure production from `.env.example`, especially `HOME_CLUB_NAMES`, `ADMIN_NOTIFICATION_EMAILS`, Savara Mail credentials, `ADMIN_API_KEY`, and `CRON_SECRET`.
+
+## Frontend shows "club-operations API not found" or "backend initialization failed"
+
+The expanded admin UI requires this backend version to be deployed. Verify `/api/ping` first, then verify an authenticated request to `/api/admin/dashboard`. Run `migrations/20260914_club_operations.sql` when your production database role does not have DDL permission for GORM AutoMigrate. The backend now returns JSON for initialization failures so the Next.js proxy can report a useful deployment error instead of an unreadable response.

@@ -161,7 +161,10 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 	initOnce.Do(setup)
 	if initErr != nil {
 		log.Printf("api initialization error: %v", initErr)
-		http.Error(w, "server initialization failed", http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"success":false,"code":"INIT_FAILED","message":"Backend initialization failed. Check the database configuration and club-operations migration in the backend deployment logs."}`))
 		return
 	}
 
