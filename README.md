@@ -161,3 +161,7 @@ GET /api/ping
 ```
 
 A healthy response includes `"message":"pong"`, `"startup":"fast"`, and, on Vercel, the deployed Git commit SHA.
+
+## Vercel routing note
+
+Do not rewrite `/api/(.*)` to `/api`. Vercel's Go backend support forwards the original request path to the Go server; collapsing nested API paths to `/api` causes Gin routes such as `/api/admin/dashboard` and `/api/attendance` to return 404.
